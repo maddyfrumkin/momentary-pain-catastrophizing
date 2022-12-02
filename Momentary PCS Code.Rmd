@@ -1,0 +1,746 @@
+---
+title: "Validation of the Momentary Pain Catastrophizing Scale for use in Ecological Momentary Assessment Research"
+author: "Madelyn R. Frumkin"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Results are presented below. The preregistered analyses are specified with the prefix 'PREREGISTRATION:' (see https://osf.io/p2459). Any updates or added analyses to the preregistered analyses plan will be specified as such.
+
+### Load packages and data
+
+```{r, message = F, warning = F}
+rm(list=ls()) 
+
+library(readr)
+library(psych)
+library(ggplot2)
+library(ggcorrplot)
+library(kableExtra)
+library(apaTables)
+library(lubridate)
+library(stringr)
+library(MplusAutomation)
+library(multilevel)
+library(multilevelTools)
+library(forecastML)
+library(nlme)
+library(plyr)
+library(purrr)
+library(tidyr)
+library(dplyr)
+```
+
+```{r, message = F, warning = F}
+#Presurgical EMA Data
+Merged_EMA <- read.csv("EMAdata.csv")
+
+#Postsurgical EMA Data
+EMA_postsurgery <- read.csv("EMAdata_postsurgery.csv")
+
+#Baseline Data
+Merged_baseline <- read.csv("BASELINEdata.csv") %>% mutate(ID = as.numeric(ID))
+
+#PHQ/PROMIS conversion table
+phq_promis_conversion <- read.csv("phq_promis_conversion.csv")
+```
+
+### Table 1: Demographics and Clinical Characteristics
+
+```{r, message = F, warning = F}
+Study1_demo <- Merged_baseline %>%
+  filter(study == "Study 1") %>%
+  mutate(Gender = recode(gender, `1` = "Male", `2` = "Female"),
+         Race = recode(race, `1` = "White",
+                        `2` = "Black or African American",
+                       `3` = "Asian",
+                       `4` = "Native American",
+                       `5` = "Other"),
+         Ethnicity = recode(ethnicity, `1` = "Hispanic or Latinx",
+                            `2` = "Not Hispanic or Latinx"),
+         `Education Level` = recode(education_level,
+                                    `1` = "No high school degree",
+                                    `2` = "High school degree",
+                                    `3` = "College degree",
+                                    `4` = "Graduate or professional school degree"),
+         `Employment Status` = recode(employment_status, `1` = "Actively Working",
+                                      `2` = "Homemaker",
+                                      `3` = "Unemployed",
+                                      `4` = "Retired",
+                                      `5` = "On disability")) %>%
+  dplyr::select(ID, Gender, Race, Ethnicity, `Education Level`, `Employment Status`) %>%       
+  pivot_longer(cols = Gender:`Employment Status`) %>%
+  dplyr::group_by(name, value) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::mutate(`%` = round((n / sum(n))*100, 0)) %>%
+  filter(!is.na(value)) %>%
+  print()
+
+Study1_demo_continuous <- Merged_baseline %>%
+  filter(study == "Study 1") %>%
+  dplyr::rename(Age = age,
+         `Pain NRS` = nrs_avg,
+         `PROMIS Anxiety` = promis_anx,
+         `PROMIS Depression` = promis_dep,
+         `PROMIS Physical Function` = promis_physfun) %>%
+  summarize_at(vars(Age, `Pain NRS`, `PROMIS Anxiety`, `PROMIS Depression`, `PROMIS Physical Function`,PCS), funs(mean, sd), na.rm = TRUE) %>%
+  mutate_all(round, digits = 2) %>%
+  pivot_longer(everything()) %>%
+  separate(name, c("Variable", "component"), sep = "_") %>%
+  pivot_wider(names_from = component, values_from = value) %>%
+  print()
+```
+
+```{r, message=FALSE, warning=FALSE}
+Study2_demo <- Merged_baseline %>%
+  filter(study == "Study 2") %>%
+  mutate(Sex = recode(sex, `0` = "Male", `1` = "Female"),
+         Ethnicity = recode(ethnicity, `0` = "Hispanic/Latino", `1` = "Not Hispanic/Latino"),
+         `Education Level` = recode(education_level,
+                                   `7` ="No high school degree",
+                                    `8`	= "No high school degree",
+                                    `9`	= "No high school degree",
+                                    `10` =	"No high school degree",
+                                    `11` =	"No high school degree",
+                                    `12` = "High school degree",
+                                    `13` =	"High school degree",
+                                    `14` =	"High school degree",
+                                    `15` =	"High school degree",
+                                    `16` =	"College degree",
+                                    `18` =	"Graduate or professional school degree",
+                                    `20` =	"Graduate or professional school degree")) %>%
+  separate(race, c("race1", "race2"), sep = ",", remove = FALSE) %>%
+  mutate(Race = recode(race1, `0` = "White", 
+                       `1` = "American Indian/Alaskan Native", 
+                       `2` = "Asian", 
+                       `3` = "Black/African American", 
+                       `4` = "Hawaiian Native/Other Pacific Islander", 
+                       `5` = "Other", 
+                       `6` = "Prefer not to answer"),
+          Race = ifelse(!is.na(race2), "More than one", Race)) %>%
+  dplyr::select(ID, Sex, Race, Ethnicity, `Education Level`) %>%       
+  pivot_longer(cols = Sex:`Education Level`) %>%
+  dplyr::group_by(name, value) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::mutate(`%` = round((n / sum(n))*100, 0)) %>%
+  filter(!is.na(value)) %>%
+  print()
+
+Study2_demo_continuous <- Merged_baseline %>%
+  filter(study == "Study 2") %>%
+  dplyr::rename(Age = age,
+         `Pain NRS` = nrs_avg,
+         `PROMIS Anxiety` = promis_anx,
+         `PROMIS Depression` = promis_dep,
+         `PROMIS Physical Function` = promis_physfun) %>%
+  summarize_at(vars(Age, `Pain NRS`, `PROMIS Anxiety`, `PROMIS Depression`, `PROMIS Physical Function`,PCS), 
+               funs(mean, sd), na.rm = TRUE) %>%
+  mutate_all(round, digits = 2) %>%
+  pivot_longer(everything()) %>%
+  separate(name, c("Variable", "component"), sep = "_") %>%
+  pivot_wider(names_from = component, values_from = value) %>%
+  print()
+```
+
+### Data summary
+```{r, message = F, warning = F}
+Study1_counts <- Merged_EMA %>%
+  filter(study == "Study 1" & !is.na(mPCS)) %>% #T = 7234
+  dplyr::group_by(ID) %>%
+  dplyr::mutate(survey = seq(1:n()),
+         max_survey = max(survey)) %>%
+  dplyr::select(ID, max_survey) %>%
+  unique()
+
+describe(Study1_counts$max_survey)
+
+Study2_counts <- Merged_EMA %>%
+  filter(study == "Study 2" & !is.na(mPCS))  %>% #T = 13151
+  dplyr::group_by(ID) %>%
+  dplyr::mutate(survey = seq(1:n()),
+         max_survey = max(survey)) %>%
+  dplyr::select(ID, max_survey) %>%
+  unique()
+
+describe(Study2_counts$max_survey)
+```
+
+
+## Step 1
+
+PREREGISTRATION: Multilevel Confirmatory Factory Analysis (MCFA) will be used to determine whether the 3 items of the Momentary PCS reflect a unitary construct across all participants and measurement occasions. Good fit will be defined as CFI ≥ .90, TLI  ≥.90, and RMSEA < .08 (Bentler, 1990; Hu & Bentler, 1999; Tucker & Lewis, 1973). The same model will also be tested in each sample separately. If the expected model does not show good fit, alternatives will be explored (e.g. removing an item, removing participants without sufficient variance in Momentary PCS items).
+
+UPDATE: Such a model is fully saturated, meaning it has no degrees of freedom with only 3 factor indicators, and will result in “perfect fit” regardless of the actual underlying properties of the model. We therefore omitted this step.
+
+## Step 2
+
+PREREGISTRATION: The following metrics will be calculated in each sample separately. 
+
+The intraclass correlation (ICC) of each item will be examined to determine the degree to which item responses vary between vs. within persons. An ICC close to 1 indicates low within-person variability, whereas an ICC close to 0 indicates high within-person variability. A t-test will be used to examine whether the ICCs from Study 1 (5 EMA surveys per day) are significantly different from the ICCs from Study 2 (3 EMA surveys per day). 
+
+```{r, message = F, warning = F}
+#Study 1
+Study1_EMA <- Merged_EMA %>% filter(study == "Study 1") %>% mutate(ID = as.numeric(ID))
+
+cat1.Study1 <- aov(Cat1 ~ as.factor(ID), data = Study1_EMA)
+ICC1.Study1 <- ICC1(cat1.Study1)
+
+cat2.Study1 <- aov(Cat2 ~ as.factor(ID), data = Study1_EMA)
+ICC2.Study1 <- ICC1(cat2.Study1)
+
+cat3.Study1 <- aov(Cat3 ~ as.factor(ID), data = Study1_EMA)
+ICC3.Study1 <- ICC1(cat3.Study1)
+
+#Study 2
+Study2_EMA <- Merged_EMA %>% filter(study == "Study 2") %>% mutate(ID = as.numeric(ID))
+
+cat1.Study2 <- aov(Cat1 ~ as.factor(ID), data = Study2_EMA)
+ICC1.Study2 <- ICC1(cat1.Study2)
+
+cat2.Study2 <- aov(Cat2 ~ as.factor(ID), data = Study2_EMA)
+ICC2.Study2 <- ICC1(cat2.Study2)
+
+cat3.Study2 <- aov(Cat3 ~ as.factor(ID), data = Study2_EMA)
+ICC3.Study2 <- ICC1(cat3.Study2)
+
+ICC <- data.frame(ICC1.Study2, ICC1.Study1, ICC2.Study2, ICC2.Study1, ICC3.Study2, ICC3.Study1) %>%
+  pivot_longer(cols = ICC1.Study2:ICC3.Study1) %>%
+  separate(name, c("item", "study")) %>% 
+  arrange(study, item) %>%
+  print()
+```
+
+```{r, message = F, warning = F}
+t.test(ICC$value ~ ICC$study)
+```
+
+## Step 3
+
+PREREGISTRATION: Multilevel alpha and omega coefficients will be calculated to further assess reliability of the 3-item Momentary PCS in each sample (Geldhof et al., 2014).  
+
+```{r, eval=FALSE}
+#This chunk requires Mplus and takes a few minutes to run, so we can skip to reading the models below
+#Load source code for multilevel reliability
+source("https://raw.githubusercontent.com/franciscowilhelm/r-collection/master/modelstring.R")
+
+#Define the names of the item variables
+var_names <- c("Cat1", "Cat2", "Cat3")
+
+#Generate the MplusObjects
+m_rel_omega_study1 <- mplusObject(
+  TITLE = "MCFA OMEGA STUDY1",
+  VARIABLE = "CLUSTER = ID; \n WITHIN = survey;",
+  ANALYSIS = "TYPE = TWOLEVEL",
+  MODEL = modelstring_omega_core(var_names, "survey"),
+  MODELCONSTRAINT = modelstring_omega_constraint(var_names),
+  OUTPUT = "SAMPSTAT CINTERVAL;",
+  usevariables = c(var_names, "ID", "survey"),
+  rdata = Study1_EMA,
+  autov = FALSE
+)
+
+m_rel_alpha_study1 <- mplusObject(
+  TITLE = "MCFA ALPHA STUDY1",
+  VARIABLE = "CLUSTER = ID; \n WITHIN = survey;",
+  ANALYSIS = "TYPE = TWOLEVEL",
+  MODEL = modelstring_alpha_core(var_names, "survey"),
+  MODELCONSTRAINT = modelstring_alpha_constraint(var_names),
+  OUTPUT = "SAMPSTAT CINTERVAL;",
+  usevariables = c(var_names, "ID", "survey"),
+  rdata = Study1_EMA,
+  autov = FALSE
+)
+
+#Write models
+m_rel_omega1 <- mplusModeler(m_rel_omega_study1, modelout = "reliability/omega_study1.inp", run = FALSE)
+m_rel_alpha1 <- mplusModeler(m_rel_alpha_study1, modelout = "reliability/alpha_study1.inp", run = FALSE)
+
+#Repeat for Study 2
+m_rel_omega_study2 <- mplusObject(
+  TITLE = "MCFA OMEGA STUDY2",
+  VARIABLE = "CLUSTER = ID; \n WITHIN = survey;",
+  ANALYSIS = "TYPE = TWOLEVEL",
+  MODEL = modelstring_omega_core(var_names, "survey"),
+  MODELCONSTRAINT = modelstring_omega_constraint(var_names),
+  OUTPUT = "SAMPSTAT CINTERVAL;",
+  usevariables = c(var_names, "ID", "survey"),
+  rdata = Study2_EMA,
+  autov = FALSE
+)
+
+m_rel_alpha_study2 <- mplusObject(
+  TITLE = "MCFA ALPHA STUDY2",
+  VARIABLE = "CLUSTER = ID; \n WITHIN = survey;",
+  ANALYSIS = "TYPE = TWOLEVEL",
+  MODEL = modelstring_alpha_core(var_names, "survey"),
+  MODELCONSTRAINT = modelstring_alpha_constraint(var_names),
+  OUTPUT = "SAMPSTAT CINTERVAL;",
+  usevariables = c(var_names, "ID", "survey"),
+  rdata = Study2_EMA,
+  autov = FALSE
+)
+
+m_rel_omega2 <- mplusModeler(m_rel_omega_study2, modelout = "reliability/omega_study2.inp", run = FALSE)
+m_rel_alpha2 <- mplusModeler(m_rel_alpha_study2, modelout = "reliability/alpha_study2.inp", run = FALSE)
+
+#Run models
+runModels(target = "reliability")
+```
+
+```{r, message = F, warning = F}
+#Read models
+m_rel_fit <- readModels(target = "reliability")
+
+#Extract estimates
+p1 <- paramExtract(m_rel_fit[[1]]$parameters$unstandardized, "new") %>%
+  mutate(Study = "Study1")
+p2 <- paramExtract(m_rel_fit[[2]]$parameters$unstandardized, "new") %>%
+  mutate(Study = "Study2")
+p3 <- paramExtract(m_rel_fit[[3]]$parameters$unstandardized, "new") %>%
+  mutate(Study = "Study1")
+p4 <- paramExtract(m_rel_fit[[4]]$parameters$unstandardized, "new") %>%
+  mutate(Study = "Study2")
+
+reliability <- rbind(p1, p2) %>% 
+  rbind(p3) %>% 
+  rbind(p4) %>%
+  dplyr::select(Study, param:pval) %>%
+  filter(., grepl('ALPHA|OMEGA|H', param)) %>%
+  separate(param, c("Parameter", "Level"), sep = "_") %>%
+  mutate(Level = recode(Level, 
+                        "W" = "Within",
+                        "B" = "Between")) %>%
+  mutate(se = paste0("(", se, ")")) %>%
+  unite("Estimate (SE)", est, se, sep = " ") %>%
+  dplyr::select(Study, Level, Parameter, 'Estimate (SE)') %>%
+  pivot_wider(names_from = Parameter, values_from = 'Estimate (SE)') %>%
+  dplyr::select(Study, Level:OMEGA)
+
+rownames(reliability) <- NULL
+  
+reliability %>%
+  dplyr::select(-Study) %>%
+  kbl(caption = "Multilevel Reliability") %>%
+  kable_classic(full_width = F, html_font = "Times New Roman") %>%
+  pack_rows("Study 1", 1, 2) %>%
+  pack_rows("Study 2", 3, 4)
+```
+
+## Step 4 
+
+PREREGISTRATION: Multilevel dynamic structural equation modeling (ML-DSEM; Asparouhov et al., 2018) will also be used to determine whether the Momentary PCS items are invariant across time (e.g., the items continue to relate to the construct in the same way at all measurement occasions) and across people (e.g., the items are being interpreted in the same way across people; see McNeish et al., 2021 for details).
+
+UPDATE: We intended to run the cross-classified model described by McNeish et al. (2021) for each sample to test both person and time invariance. However, this model would not converge. In personal communication, D. McNeish suggested that this is likely due to differing numbers of observations per individual, which we find to be common in EMA research. He suggested that we instead run time and person invariance models separately as two-level models. The time invariance models converged (for Study 2, we had to limit surveys to the first 3 weeks because few participants had more time points). The time invariance models showed that participants' responses were consistent across time in both studies, as evidenced by very variance estimates that were not >3x greater than their standard deviations (full Mplus output available in the online supplementary materials and displayed below). The person invariance model did not converge in either sample. 
+
+```{r, message = F, warning = F, eval = F}
+#Write Mplus models
+#Study 1
+Study1_EMA_complete <- Study1_EMA %>% 
+  na.omit() #remove rows with missing data
+
+study1_invariance_time <- mplusObject(
+ VARIABLE = "USEVARIABLES = cat1 cat2 cat3; 
+            CLUSTER = survey;",
+  ANALYSIS = "TYPE = TWOLEVEL RANDOM;
+          ESTIMATOR = BAYES;
+          PROC = 2;
+          FBITER = 5000;
+          THIN = 100;
+          BSEED = 123456;",
+  MODEL = "%WITHIN%
+  
+  s1-s3|cat BY cat1-cat3; !define factor loadings as random effects
+  cat@1; !set factor variance = 1
+  
+  %BETWEEN%
+  
+  [s1-s3]; !factor loadings fixed effects
+  s1-s3; !between-time variance of factor loadings
+  cat; !between-time variance of catastrophizing factor
+  cat1-cat3; !between-time variance of item intercepts;",
+   OUTPUT = "tech1 tech8;",
+   rdata = Study1_EMA_complete)
+
+#Study 2
+Study2_EMA_complete <- Study2_EMA %>% 
+  na.omit() %>% #remove rows with missing data
+  filter(survey <= 63) #limit to 3 weeks (3x/day) to improve convergence
+
+study2_invariance_time <- mplusObject(
+ VARIABLE = "USEVARIABLES = cat1 cat2 cat3; 
+            CLUSTER = survey;",
+  ANALYSIS = "TYPE = TWOLEVEL RANDOM;
+          ESTIMATOR = BAYES;
+          PROC = 2;
+          FBITER = 20000;
+          BSEED = 123456;",
+  MODEL = "%WITHIN%
+  
+  s1-s3|cat BY cat1-cat3; !define factor loadings as random effects
+  cat@1; !set factor variance = 1
+  
+  %BETWEEN%
+  
+  [s1-s3]; !factor loadings fixed effects
+  s1-s3; !between-time variance of factor loadings
+  cat; !between-time variance of catastrophizing factor
+  cat1-cat3; !between-time variance of item intercepts;",
+   OUTPUT = "tech1 tech8;",
+   rdata = Study2_EMA_complete)
+
+mplusModeler(study1_invariance_time, modelout = "invariance/study1_time_invariance.inp")
+mplusModeler(study2_invariance_time, modelout = "invariance/study2_time_invariance.inp")
+
+#Run models
+runModels(target = "invariance", showOutput = TRUE)
+```
+
+```{r, message = F, warning = F}
+#Read models
+time_invariance_study1 <- readModels(target = "invariance/study1_time_invariance.out")$parameters$unstandardized %>%
+  filter(BetweenWithin == "Between") %>%
+  slice(-10) %>%
+  mutate(Parameter = rep(c("Intercept Fixed Effect", "Loading Fixed Effect", 
+                           "Intercept Time Variance", "Loading Time Variance"), each = 3),
+         Item = rep(c("Item 1", "Item 2", "Item 3"), time = 4)) %>%
+  unite("Estimate (SD)", c("est", "posterior_sd"), sep = " (") %>%
+  mutate(`Estimate (SD)` = paste0(`Estimate (SD)`, ")"))  %>%
+  dplyr::select(Parameter, Item, `Estimate (SD)`) %>%
+  pivot_wider(names_from = Item, values_from = `Estimate (SD)`) 
+
+time_invariance_study2 <- readModels(target = "invariance/study2_time_invariance.out")$parameters$unstandardized %>%
+  filter(BetweenWithin == "Between") %>%
+  slice(-10) %>%
+  mutate(Parameter = rep(c("Intercept Fixed Effect", "Loading Fixed Effect", 
+                           "Intercept Time Variance", "Loading Time Variance"), each = 3),
+         Item = rep(c("Item 1", "Item 2", "Item 3"), time = 4)) %>%
+  unite("Estimate (SD)", c("est", "posterior_sd"), sep = " (") %>%
+  mutate(`Estimate (SD)` = paste0(`Estimate (SD)`, ")"))  %>%
+  dplyr::select(Parameter, Item, `Estimate (SD)`) %>%
+  pivot_wider(names_from = Item, values_from = `Estimate (SD)`) %>%
+  dplyr::select(-Parameter)
+
+#Merge into a table
+time_invariance <- cbind(time_invariance_study1, time_invariance_study2)
+
+time_invariance %>%
+  kbl(caption = "Item Invariance Across Time") %>%
+  add_header_above(c(" ", "Study 1" = 3, "Study 2" = 3)) %>%
+  kable_classic(full_width = F, html_font = "Times New Roman") %>%
+  footnote(general = "Displayed as unstandardized estimate (posterior standard deviation). By default, variance estimates cannot be below zero. Therefore, a variance estimate that is at least 3 times larger than its standard deviation is considered meaningful.")
+```
+
+## Step 5
+
+PREREGISTRATION: To assess construct validity, an average Momentary PCS score will be calculated for each individual by first averaging the three items at each measurement occasion, then averaging the composite score for each individual across all measurement occasions. Average scores on the Momentary PCS will be correlated with 13-item PCS scores, pain severity on the numeric rating scale, PROMIS anxiety, PROMIS physical function, and PROMIS depression. PHQ-9 scores from Study 1 will be converted to PROMIS depression t-scores using conversions developed by Choi et al. (2014). Pearson’s correlations will be used to determine the extent to which average Momentary PCS scores correlate with related constructs. 
+
+```{r, message = F, warning = F}
+#data prep study 1
+Study1_mPCS <- Study1_EMA %>%
+  dplyr::group_by(ID) %>%
+  dplyr::summarize(mPCS_avg = mean(mPCS, na.rm = T),
+                   mPCS_sd = sd(mPCS, na.rm = T)) 
+
+#correlation matrix study 1
+Study1_corr <- Study1_mPCS %>%
+  left_join(Merged_baseline) %>%
+  dplyr::select(mPCS_avg, PCS, nrs_avg, promis_anx, promis_dep, promis_physfun) %>%
+  dplyr::rename(`Mean mPCS` = mPCS_avg,
+         `Pain NRS` = nrs_avg,
+         `Anxiety` = promis_anx,
+         `Depression` = promis_dep,
+         `Physical Function` = promis_physfun) %>%
+  as.matrix() %>%
+  cor(use = "pairwise.complete.obs", method = "pearson")
+
+#data prep study 2
+Study2_mPCS <- Study2_EMA %>%
+  dplyr::group_by(ID) %>%
+  dplyr::summarize(mPCS_avg = mean(mPCS, na.rm = T),
+                   mPCS_sd = sd(mPCS, na.rm = T)) 
+
+#correlation matrix study 2
+Study2_corr <- Study2_mPCS %>%
+  left_join(Merged_baseline) %>%
+  dplyr::select(mPCS_avg, PCS, nrs_avg, promis_anx, promis_dep, promis_physfun) %>%
+  dplyr::rename(`Mean mPCS` = mPCS_avg,
+         `Pain NRS` = nrs_avg,
+         `Anxiety` = promis_anx,
+         `Depression` = promis_dep,
+         `Physical Function` = promis_physfun) %>%
+  as.matrix() %>%
+  cor(use = "pairwise.complete.obs", method = "pearson")
+
+#merge matrices 
+corr <- lowerUpper(Study2_corr, Study1_corr)
+
+#visualize
+ggcorrplot(corr[,6:1], outline.col = "black", lab= TRUE,
+           ggtheme = ggplot2::theme_classic(),
+           colors = c("#c20404", "white", "#6D9EC1"),
+           legend.title = "Correlation") +
+  labs(caption = "Note. Between-person correlations for Study 1 (n = 90) are presented in the lower triangle.\nBetween-person correlations for Study 2 (n = 406) are presented in the upper triangle.") 
+```
+
+ADDITION: Report mPCS means and compare between studies
+
+```{r, message = F, warning = F}
+#report means and SDs of mPCS
+describe(Study1_mPCS$mPCS_avg)
+describe(Study2_mPCS$mPCS_avg)
+
+merged_mPCS <- Study1_mPCS %>%
+  mutate(study = 1) %>%
+  merge(Study2_mPCS, all = TRUE) %>%
+  mutate(study = ifelse(is.na(study), 2, 1))
+
+t.test(merged_mPCS$mPCS_avg ~ merged_mPCS$study)
+```
+
+## Step 6
+
+PREREGISTRATION: In addition to examining average Momentary PCS scores, we will also examine variability estimates as correlates of symptom severity. Variability metrics including within-person standard deviation, root mean square successive difference (RMSSD), minimum, maximum, and autocorrelation will be calculated for each individual after averaging the three items of the Momentary PCS at each measurement occasion. These metrics will be correlated with 13-item PCS scores, pain severity on the numeric rating scale, PROMIS anxiety, PROMIS physical function, and PROMIS depression, as described above. 
+
+```{r message = FALSE, warning = FALSE}
+#compute variability metrics for study 1
+study1_ar <- Study1_EMA %>%
+  split(.$ID) %>% 
+  map(~acf(.$mPCS, main = unique(.$ID), 
+           lag.max = 1, na.action = na.pass, plot = F)) %>%
+  map_dfr(~data.frame(acf = .$acf), .id = "ID") %>%
+  filter(acf < .9999) %>%
+  mutate(ID = as.numeric(ID)) 
+
+study1_var <- Study1_EMA %>%
+  dplyr::group_by(ID) %>%
+  mutate_at(vars(mPCS), funs(rmssd, mean, sd, min, max), na.rm = TRUE) %>%
+  dplyr::select(ID, mean, sd, rmssd, min, max) %>%
+  left_join(study1_ar) %>%
+  unique() %>%
+  left_join(Merged_baseline) %>%
+  ungroup() %>%
+  dplyr::select(mean, sd, rmssd, acf, min, max, PCS, nrs_avg, promis_anx, promis_dep, promis_physfun) %>%
+  dplyr::rename(`mPCS Mean` = mean,
+         `mPCS SD` = sd,
+         `mPCS RMSSD` = rmssd,
+         `mPCS AC` = acf,
+         `mPCS Min` = min,
+         `mPCS Max` = max,
+         `Pain NRS` = nrs_avg,
+         `Anxiety` = promis_anx,
+         `Depression` = promis_dep,
+         `Physical Function` = promis_physfun) %>%
+  as.matrix() %>%
+  cor(use = "pairwise.complete.obs", method = "pearson")
+
+#compute variability metrics for study 2
+study2_ar <- Study2_EMA %>%
+  split(.$ID) %>% 
+  map(~acf(.$mPCS, main = unique(.$ID), 
+           lag.max = 1, na.action = na.pass, plot = F)) %>%
+  map_dfr(~data.frame(acf = .$acf), .id = "ID") %>%
+  filter(acf < .9999) %>%
+  mutate(ID = as.numeric(ID)) 
+
+study2_var <- Study2_EMA %>%
+  dplyr::group_by(ID) %>%
+  mutate_at(vars(mPCS), funs(rmssd, mean, sd, min, max), na.rm = TRUE) %>%
+  left_join(study2_ar) %>%
+  dplyr::select(ID, mean, sd, rmssd, min, max, acf) %>%
+  unique() %>%
+  left_join(Merged_baseline)%>%
+  ungroup() %>%
+  dplyr::select(mean, sd, rmssd, acf, min, max, PCS, nrs_avg, promis_anx, promis_dep, promis_physfun) %>%
+  dplyr::rename(`mPCS Mean` = mean,
+         `mPCS SD` = sd,
+         `mPCS RMSSD` = rmssd,
+         `mPCS AC` = acf,
+         `mPCS Min` = min,
+         `mPCS Max` = max,
+         `Pain NRS` = nrs_avg,
+         `Anxiety` = promis_anx,
+         `Depression` = promis_dep,
+         `Physical Function` = promis_physfun) %>%
+  as.matrix() %>%
+  cor(use = "pairwise.complete.obs", method = "pearson")
+
+#merge matrices 
+corr2 <- lowerUpper(study2_var, study1_var)
+
+#visualize
+ggcorrplot(corr2[,11:1], outline.col = "black", lab = TRUE, lab_size = 2,
+           ggtheme = ggplot2::theme_classic(),
+           colors = c("#c20404", "white", "#6D9EC1"),
+           title = "Figure 1. Correlation Matrix",
+           legend.title = "Correlation") +
+  labs(caption = "Note. Between-person correlations for Study 1 (n = 90) are presented in the lower triangle.\nBetween-person correlations for Study 2 (n = 406) are presented in the upper triangle.")
+```
+
+## Step 7
+
+PREREGISTRATION: Finally, we will examine whether Momentary PCS has predictive utility regarding surgical outcomes, over and above the traditional one-time PCS. For this analysis, we will focus on participants in Study 2, which includes a larger, more heterogeneous sample. We will include any individuals from Study 2 who completed any post-operative EMAs within the first month after their surgery . We will use the post-operative EMA surveys to calculate an intercept and slope of post-operative pain severity in the first month following surgery for each individual. We will then regress these intercepts and slopes on 13-item PCS scores (collected at baseline), average Momentary PCS scores (during the pre-operative period), and Momentary PCS variability estimates described above. If any metrics calculated from the Momentary PCS (e.g., mean, within-person standard deviation, RMSSD) are significant predictors of intercept and/or slope (p < .05) above and beyond one-time PCS scores collected at baseline, this will further support the predictive validity and utility of assessing momentary pain catastrophizing using EMA. 
+UPDATE: We did not include RMSSD in this analysis because it was highly correlated with SD (r = .91).
+
+We did control for within-day effects (e.g., if pain had a tendency to worsen or improve over the course of each day). We also controlled for autoregressive effects (e.g., the degree to which pain predicts itself from survey to survey) so that the remaining slope across days is not conflated with the effect of pain on itself.
+
+```{r, warning = FALSE, message=FALSE}
+#data prep ----
+
+#presurgery EMA data
+study2_pre <- Study2_EMA %>%
+  dplyr::group_by(ID) %>%
+  dplyr::mutate_at(vars(mPCS), funs(mean, sd, min, max), na.rm = TRUE) %>%
+  dplyr::select(ID, mean, sd, min, max) %>%
+  unique() %>%
+  ungroup() %>%
+  left_join(Merged_baseline) #merge with baseline data
+
+#combine with postsurgery EMA
+study2_lm_data <- EMA_postsurgery %>%
+  left_join(study2_pre) %>%
+  filter(LifeDataID != 86419) %>% #remove this person -- duplicate ID
+  filter(!is.na(time)) %>%
+  arrange(ID, time) %>%
+  mutate(time = time/60/60) #rescale time --> hours (from seconds)
+
+#get average number of postsurgery surveys per person
+study2_post_counts <- study2_lm_data %>%
+  dplyr::group_by(ID) %>%
+  dplyr::mutate(responded = ifelse(is.na(Pain), 0, 1),
+         responded_count = cumsum(responded),
+         responded_max = max(responded_count),
+         survey = seq(1:n()),
+         survey_max = max(survey)) %>%
+  dplyr::select(ID, responded_max, survey_max) %>%
+  unique() %>%
+  filter(responded_max > 0)
+
+describe(study2_post_counts$responded_max)
+```
+
+```{r, eval=FALSE}
+#This chunk requires Mplus and takes a few minutes to run, so we can skip to reading the models below
+study2_trajectory <- mplusObject(
+ VARIABLE = "USEVARIABLES = id time day surv pain
+               PCS mean sd min max; !mean/sd/min/max refer to Momentary PCS
+            CLUSTER = id;
+            WITHIN =  day surv;
+            BETWEEN =  PCS mean sd min max; 
+            TINTERVAL = time(5); !define 5-hour lag
+            LAGGED = pain(1);",
+ ANALYSIS = "TYPE = TWOLEVEL RANDOM;
+          ESTIMATOR = BAYES;
+          PROC = 2;
+          FBITER = 10000;
+          BSEED = 123456;",
+  MODEL = "%WITHIN%
+          ar | pain ON pain&1; !pain is regressed on Lag-1 pain
+          slp_day | pain ON day; !pain is regressed on day of study
+          slp_surv | pain ON surv; !pain is regressed on survey of the day
+          
+          pain; !within-level variance
+          day;
+          surv;
+          
+          %BETWEEN%
+          pain ON PCS mean sd min max; !predicting pain intercept
+          slp_day ON pain PCS mean sd min max; !predicting pain slope",
+   OUTPUT = "stand tech1 tech8;",
+   SAVEDATA = "file = trajectory.dat;
+      save fscores(100);
+      bparameters = bparam.dat;",
+   rdata = study2_lm_data)
+
+mplusModeler(study2_trajectory, modelout = "study2_trajectory.inp")
+runModels("study2_trajectory.inp", showOutput = TRUE)
+```
+
+```{r, message = F, warning = F}
+#read model
+trajectory_out <- readModels("study2_trajectory.out", what = "parameters")$parameters$unstandardized %>%
+  filter(BetweenWithin == "Between") %>%
+  mutate(Outcome = ifelse(paramHeader == "Intercepts", param, paramHeader),
+         Predictor = ifelse(paramHeader == "Intercepts", "Intercept", param),
+         Outcome2 = recode(Outcome,
+                          "SLP_DAY.ON" = "Pain Slope",
+                          "SLP_DAY" = "Pain Slope",
+                          "PAIN.ON" = "Pain Intercept",
+                          "PAIN" = "Pain Intercept"),
+         Predictor2 = recode(Predictor,
+                             "PCS" = "PCS",
+                            "MEAN" = "mPCS Mean",
+                            "SD" = "mPCS SD",
+                            "MIN" = "mPCS Min",
+                            "MAX" = "mPCS Max",
+                            "PAIN" = "Pain Intercept")) %>%
+  filter(., grepl('Pain Slope|Pain Intercept', Outcome2)) %>%
+  arrange(Outcome2, Predictor2) %>%
+  dplyr::select(Outcome2, Predictor2, est, lower_2.5ci, upper_2.5ci, pval) %>%
+  unite("CI", lower_2.5ci:upper_2.5ci, sep = " - ") %>%
+  mutate(CI = paste0("(", CI, ")")) %>%
+  unite("Estimate (95% CI)", est, CI, sep = " ") %>%
+  dplyr::rename(p = pval,
+                Outcome = Outcome2,
+                Predictor = Predictor2) %>%
+  mutate(Predictor = factor(Predictor, levels = c("Intercept",
+                                                  "Pain Intercept",
+                                                  "PCS",
+                                                  "mPCS Mean",
+                                                  "mPCS SD",
+                                                 "mPCS Min",
+                                                  "mPCS Max"))) %>%
+  arrange(Outcome, Predictor)
+  
+trajectory_out %>%
+  mutate(Outcome = ifelse(!is.na(Outcome), "      ", .)) %>%
+  kbl(caption = "Predictive Utility of mPCS") %>%
+  kable_classic(full_width = F, html_font = "Times New Roman") %>%
+  pack_rows("Pain Intercept (Day 0)", 1, 6) %>%
+  pack_rows("Pain Trajectory", 7, 13) 
+```
+
+Plot: Predicted values for 30-day pain trajectories displayed by low average Momentary PCS (at least 1/2 standard deviation below mean), moderate Momentary PCS (1/2 standard deviation below mean to 1/2 standard deviation above mean), and high Momentary PCS (at least 1/2 standard deviation above mean).
+
+```{r, message = F, warning = F}
+#get post-op pain intercept and slope projections for each individual from ml-dsem model
+estimates <- readModels("study2_trajectory.out", what = "savedata")$savedata %>%
+  dplyr::select(ID, B_PAIN.Median, SLP_DAY.Median) %>%
+  unique() %>%
+  dplyr::rename(Intercept = B_PAIN.Median,
+         Slope = SLP_DAY.Median) %>%
+  left_join(study2_pre) %>%
+  dplyr::rename(mPCS_mean = mean)
+
+#day-level raw pain data
+raw_data <- study2_lm_data %>%
+  dplyr::group_by(ID, day) %>%
+  summarize_at(vars(Pain), mean, na.rm = T)
+
+#save group-level mean and sd of the mPCS
+mean <- mean(estimates$mPCS_mean, na.rm = T)
+sd <- sd(estimates$mPCS_mean, na.rm = T)
+
+#plot 
+plot <- estimates %>%
+   slice(rep(1:n(), each = 32)) %>%
+   mutate(day = rep(0:31, times = nrow(estimates))) %>%
+   mutate(pain_pred = Intercept + Slope*day) %>%
+   left_join(raw_data) %>%
+    mutate(level = ifelse(mPCS_mean < mean-.5*sd, "1. Low mPCS", NA), 
+         level2 = ifelse((mPCS_mean > mean-.5*sd & mPCS_mean < mean+.5*sd), "2. Moderate mPCS", level),
+         level3 = ifelse(mPCS_mean > mean+.5*sd, "3. High mPCS", level2))
+    
+plot %>%
+  ggplot(aes(x = day, y = pain_pred, group = ID)) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", size = .1) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue", size = 1, aes(group = level3)) +
+  theme_classic() +
+  facet_grid(~level3) +
+  labs(x = "Day Post Surgery", y = "Predicted Pain (0-100)") +
+  theme(plot.background = element_blank()) +
+  scale_y_continuous(breaks = seq(0,100,25)) +
+  ylim(0,100) +
+  theme(text=element_text(size=16,  family="Times New Roman")) +
+  ggtitle("Figure 2. Predicted post-surgical paintrajectories by\naverage mPCS scores") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
